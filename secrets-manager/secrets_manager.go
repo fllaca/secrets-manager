@@ -1,6 +1,7 @@
 package secretsmanager
 
 import (
+	"github.com/tuenti/secrets-manager/scheduler"
 	"context"
 	"reflect"
 	"strings"
@@ -172,15 +173,7 @@ func (s *SecretManager) startConfigMapRefresh(ctx context.Context) {
 	// initial load of secretDefinitions
 	s.loadSecretDefinitions()
 
-	go func(ctx context.Context) {
-		for {
-			select {
-			case <-time.After(s.configMapRefreshInterval):
-				s.loadSecretDefinitions()
-			case <-ctx.Done():
-				log.Infoln("gracefully shutting down configmap refresh go routine")
-				return
-			}
-		}
-	}(ctx)
+	scheduler.Schedule(ctx, s.configMapRefreshInterval, func(){
+		s.loadSecretDefinitions()
+	})
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+	"github.com/tuenti/secrets-manager/scheduler"
 
 	"github.com/hashicorp/vault/api"
 	log "github.com/sirupsen/logrus"
@@ -113,24 +114,16 @@ func (c *client) renewToken() error {
 }
 
 func (c *client) startTokenRenewer(ctx context.Context) {
-	go func(ctx context.Context) {
-		for {
-			select {
-			case <-time.After(c.tokenPollingPeriod):
-				if c.isTokenExpired() {
-					err := c.renewToken()
-					if err != nil {
-						logger.Errorf("could not renew token: %v", err)
-					} else {
-						logger.Infoln("token renewed successfully!")
-					}
-				}
-			case <-ctx.Done():
-				logger.Infoln("gracefully shutting down token renewal go routine")
-				return
+	scheduler.Schedule(ctx, c.tokenPollingPeriod, func(){
+		if c.isTokenExpired() {
+			err := c.renewToken()
+			if err != nil {
+				logger.Errorf("could not renew token: %v", err)
+			} else {
+				logger.Infoln("token renewed successfully!")
 			}
 		}
-	}(ctx)
+	})
 }
 
 func (c *client) ReadSecret(path string, key string) (string, error) {

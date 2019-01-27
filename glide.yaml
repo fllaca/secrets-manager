@@ -20,8 +20,9 @@ import:
   - gomock
 - package: github.com/prometheus/client_golang
   version: ^0.9.2
-# Explicitly add prometheus dependencies
 - package: github.com/golang/protobuf
   version: ^1.2.0
   subpackages:
   - proto
+- package: k8s.io/code-generator
+  version: kubernetes-1.10.0

@@ -28,8 +28,8 @@ type FakeSecretsmanagerV1alpha1 struct {
 	*testing.Fake
 }
 
-func (c *FakeSecretsmanagerV1alpha1) Foos(namespace string) v1alpha1.FooInterface {
-	return &FakeFoos{c, namespace}
+func (c *FakeSecretsmanagerV1alpha1) SecretDefinitions(namespace string) v1alpha1.SecretDefinitionInterface {
+	return &FakeSecretDefinitions{c, namespace}
 }
 
 // RESTClient returns a RESTClient that is used to communicate

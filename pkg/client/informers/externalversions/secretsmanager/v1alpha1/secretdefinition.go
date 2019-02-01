@@ -31,59 +31,59 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// FooInformer provides access to a shared informer and lister for
-// Foos.
-type FooInformer interface {
+// SecretDefinitionInformer provides access to a shared informer and lister for
+// SecretDefinitions.
+type SecretDefinitionInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.FooLister
+	Lister() v1alpha1.SecretDefinitionLister
 }
 
-type fooInformer struct {
+type secretDefinitionInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 	namespace        string
 }
 
-// NewFooInformer constructs a new informer for Foo type.
+// NewSecretDefinitionInformer constructs a new informer for SecretDefinition type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFooInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredFooInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewSecretDefinitionInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredSecretDefinitionInformer(client, namespace, resyncPeriod, indexers, nil)
 }
 
-// NewFilteredFooInformer constructs a new informer for Foo type.
+// NewFilteredSecretDefinitionInformer constructs a new informer for SecretDefinition type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredFooInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredSecretDefinitionInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.SecretsmanagerV1alpha1().Foos(namespace).List(options)
+				return client.SecretsmanagerV1alpha1().SecretDefinitions(namespace).List(options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.SecretsmanagerV1alpha1().Foos(namespace).Watch(options)
+				return client.SecretsmanagerV1alpha1().SecretDefinitions(namespace).Watch(options)
 			},
 		},
-		&secretsmanager_v1alpha1.Foo{},
+		&secretsmanager_v1alpha1.SecretDefinition{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *fooInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredFooInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+func (f *secretDefinitionInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredSecretDefinitionInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
-func (f *fooInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&secretsmanager_v1alpha1.Foo{}, f.defaultInformer)
+func (f *secretDefinitionInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&secretsmanager_v1alpha1.SecretDefinition{}, f.defaultInformer)
 }
 
-func (f *fooInformer) Lister() v1alpha1.FooLister {
-	return v1alpha1.NewFooLister(f.Informer().GetIndexer())
+func (f *secretDefinitionInformer) Lister() v1alpha1.SecretDefinitionLister {
+	return v1alpha1.NewSecretDefinitionLister(f.Informer().GetIndexer())
 }

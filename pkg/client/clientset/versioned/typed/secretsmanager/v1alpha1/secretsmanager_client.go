@@ -27,7 +27,7 @@ import (
 
 type SecretsmanagerV1alpha1Interface interface {
 	RESTClient() rest.Interface
-	FoosGetter
+	SecretDefinitionsGetter
 }
 
 // SecretsmanagerV1alpha1Client is used to interact with features provided by the secretsmanager.tuenti.io group.
@@ -35,8 +35,8 @@ type SecretsmanagerV1alpha1Client struct {
 	restClient rest.Interface
 }
 
-func (c *SecretsmanagerV1alpha1Client) Foos(namespace string) FooInterface {
-	return newFoos(c, namespace)
+func (c *SecretsmanagerV1alpha1Client) SecretDefinitions(namespace string) SecretDefinitionInterface {
+	return newSecretDefinitions(c, namespace)
 }
 
 // NewForConfig creates a new SecretsmanagerV1alpha1Client for the given config.

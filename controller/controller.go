@@ -20,62 +20,60 @@ import (
 	"fmt"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	//"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	coreinformers "k8s.io/client-go/informers/core/v1"
+	//coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	corelisters "k8s.io/client-go/listers/core/v1"
+	//corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 
 	log "github.com/sirupsen/logrus"
 
-	secretsmanagerv1alpha1 "github.com/tuenti/secrets-manager/pkg/apis/secretsmanager/v1alpha1"
+	//secretsmanagerv1alpha1 "github.com/tuenti/secrets-manager/pkg/apis/secretsmanager/v1alpha1"
 	clientset "github.com/tuenti/secrets-manager/pkg/client/clientset/versioned"
 	secretsmanagerscheme "github.com/tuenti/secrets-manager/pkg/client/clientset/versioned/scheme"
 	informers "github.com/tuenti/secrets-manager/pkg/client/informers/externalversions/secretsmanager/v1alpha1"
 	listers "github.com/tuenti/secrets-manager/pkg/client/listers/secretsmanager/v1alpha1"
+
+	secretsmanager "github.com/tuenti/secrets-manager/secrets-manager"
 )
 
 const controllerAgentName = "secrets-manager"
 
 const (
-	// SuccessSynced is used as part of the Event 'reason' when a Foo is synced
+	// SuccessSynced is used as part of the Event 'reason' when a SecretDefinition is synced
 	SuccessSynced = "Synced"
-	// ErrResourceExists is used as part of the Event 'reason' when a Foo fails
+	// ErrResourceExists is used as part of the Event 'reason' when a SecretDefinition fails
 	// to sync due to a Deployment of the same name already existing.
 	ErrResourceExists = "ErrResourceExists"
 
 	// MessageResourceExists is the message used for Events when a resource
 	// fails to sync due to a Deployment already existing
-	MessageResourceExists = "Resource %q already exists and is not managed by Foo"
-	// MessageResourceSynced is the message used for an Event fired when a Foo
+	MessageResourceExists = "Resource %q already exists and is not managed by SecretDefinition"
+	// MessageResourceSynced is the message used for an Event fired when a SecretDefinition
 	// is synced successfully
-	MessageResourceSynced = "Foo synced successfully"
+	MessageResourceSynced = "SecretDefinition synced successfully"
 )
 
 var logger *log.Logger
 
-// Controller is the controller implementation for Foo resources
+// Controller is the controller implementation for SecretDefinition resources
 type Controller struct {
 	// kubeclientset is a standard kubernetes clientset
 	kubeclientset kubernetes.Interface
 	// sampleclientset is a clientset for our own API group
 	sampleclientset clientset.Interface
 
-	secretsLister     corelisters.SecretLister
-	secretsSynced     cache.InformerSynced
-	
-	foosLister        listers.FooLister
-	foosSynced        cache.InformerSynced
+	secretDefinitionsLister listers.SecretDefinitionLister
+	secretDefinitionsSynced cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -86,14 +84,16 @@ type Controller struct {
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
 	recorder record.EventRecorder
+
+	secretsManager *secretsmanager.SecretManager
 }
 
 // NewController returns a new sample controller
 func NewController(
 	kubeclientset kubernetes.Interface,
-	sampleclientset clientset.Interface,
-	secretInformer coreinformers.SecretInformer,
-	fooInformer informers.FooInformer) *Controller {
+	secretDefinitionclientset clientset.Interface,
+	secretDefinitionInformer informers.SecretDefinitionInformer,
+	secretsManager *secretsmanager.SecretManager) *Controller {
 
 	// Create event broadcaster
 	// Add sample-controller types to the default Kubernetes Scheme so Events can be
@@ -107,43 +107,22 @@ func NewController(
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 
 	controller := &Controller{
-		kubeclientset:     kubeclientset,
-		sampleclientset:   sampleclientset,
-		secretsLister:     secretInformer.Lister(),
-		secretsSynced:     secretInformer.Informer().HasSynced,
-		foosLister:        fooInformer.Lister(),
-		foosSynced:        fooInformer.Informer().HasSynced,
-		workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Foos"),
-		recorder:          recorder,
+		kubeclientset:           kubeclientset,
+		sampleclientset:         secretDefinitionclientset,
+		secretDefinitionsLister: secretDefinitionInformer.Lister(),
+		secretDefinitionsSynced: secretDefinitionInformer.Informer().HasSynced,
+		workqueue:               workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "SecretDefinitions"),
+		recorder:                recorder,
+		secretsManager:          secretsManager,
 	}
 
 	logger.Info("Setting up event handlers")
-	// Set up an event handler for when Foo resources change
-	fooInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.enqueueFoo,
+	// Set up an event handler for when SecretDefinition resources change
+	secretDefinitionInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: controller.enqueueSecretDefinition,
 		UpdateFunc: func(old, new interface{}) {
-			controller.enqueueFoo(new)
+			controller.enqueueSecretDefinition(new)
 		},
-	})
-	// Set up an event handler for when Deployment resources change. This
-	// handler will lookup the owner of the given Deployment, and if it is
-	// owned by a Foo resource will enqueue that Foo resource for
-	// processing. This way, we don't need to implement custom logic for
-	// handling Deployment resources. More info on this pattern:
-	// https://github.com/kubernetes/community/blob/8cafef897a22026d42f5e5bb3f104febe7e29830/contributors/devel/controllers.md
-	secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.handleObject,
-		UpdateFunc: func(old, new interface{}) {
-			newDepl := new.(*appsv1.Deployment)
-			oldDepl := old.(*appsv1.Deployment)
-			if newDepl.ResourceVersion == oldDepl.ResourceVersion {
-				// Periodic resync will send update events for all known Deployments.
-				// Two different versions of the same Deployment will always have different RVs.
-				return
-			}
-			controller.handleObject(new)
-		},
-		DeleteFunc: controller.handleObject,
 	})
 
 	return controller
@@ -158,16 +137,16 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	defer c.workqueue.ShutDown()
 
 	// Start the informer factories to begin populating the informer caches
-	logger.Info("Starting Foo controller")
+	logger.Info("Starting SecretDefinition controller")
 
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, c.secretsSynced, c.foosSynced); !ok {
+	if ok := cache.WaitForCacheSync(stopCh, c.secretDefinitionsSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
 	logger.Info("Starting workers")
-	// Launch two workers to process Foo resources
+	// Launch two workers to process SecretDefinition resources
 	for i := 0; i < threadiness; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
 	}
@@ -221,7 +200,7 @@ func (c *Controller) processNextWorkItem() bool {
 			return nil
 		}
 		// Run the syncHandler, passing it the namespace/name string of the
-		// Foo resource to be synced.
+		// SecretDefinition resource to be synced.
 		if err := c.syncHandler(key); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
 			c.workqueue.AddRateLimited(key)
@@ -243,7 +222,7 @@ func (c *Controller) processNextWorkItem() bool {
 }
 
 // syncHandler compares the actual state with the desired, and attempts to
-// converge the two. It then updates the Status block of the Foo resource
+// converge the two. It then updates the Status block of the SecretDefinition resource
 // with the current status of the resource.
 func (c *Controller) syncHandler(key string) error {
 	// Convert the namespace/name string into a distinct namespace and name
@@ -253,94 +232,36 @@ func (c *Controller) syncHandler(key string) error {
 		return nil
 	}
 
-	// Get the Foo resource with this namespace/name
-	foo, err := c.foosLister.Foos(namespace).Get(name)
+	// Get the SecretDefinition resource with this namespace/name
+	secretDefinition, err := c.secretDefinitionsLister.SecretDefinitions(namespace).Get(name)
 	if err != nil {
-		// The Foo resource may no longer exist, in which case we stop
+		// The SecretDefinition resource may no longer exist, in which case we stop
 		// processing.
 		if errors.IsNotFound(err) {
-			utilruntime.HandleError(fmt.Errorf("foo '%s' in work queue no longer exists", key))
+			utilruntime.HandleError(fmt.Errorf("secretDefinition '%s' in work queue no longer exists", key))
 			return nil
 		}
 
 		return err
 	}
 
-	deploymentName := foo.Spec.DeploymentName
-	if deploymentName == "" {
+	secretName := secretDefinition.Spec.Name
+	if secretName == "" {
 		// We choose to absorb the error here as the worker would requeue the
 		// resource otherwise. Instead, the next time the resource is updated
 		// the resource will be queued again.
-		utilruntime.HandleError(fmt.Errorf("%s: deployment name must be specified", key))
+		utilruntime.HandleError(fmt.Errorf("%s: secret definition name must be specified", key))
 		return nil
 	}
 
-	// Get the deployment with the name specified in Foo.spec
-	deployment, err := c.secretsLister.Secrets(foo.Namespace).Get(deploymentName)
-	// If the resource doesn't exist, we'll create it
-	if errors.IsNotFound(err) {
-		deployment, err = c.kubeclientset.CoreV1().Secrets(foo.Namespace).Create(newSecret(foo))
-	}
-
-	// If an error occurs during Get/Create, we'll requeue the item so we can
-	// attempt processing again later. This could have been caused by a
-	// temporary network failure, or any other transient reason.
-	if err != nil {
-		return err
-	}
-
-	// If the Deployment is not controlled by this Foo resource, we should log
-	// a warning to the event recorder and ret
-	if !metav1.IsControlledBy(deployment, foo) {
-		msg := fmt.Sprintf(MessageResourceExists, deployment.Name)
-		c.recorder.Event(foo, corev1.EventTypeWarning, ErrResourceExists, msg)
-		return fmt.Errorf(msg)
-	}
-
-	// If this number of the replicas on the Foo resource is specified, and the
-	// number does not equal the current desired replicas on the Deployment, we
-	// should update the Deployment resource.
-	if foo.Spec.Replicas != nil && *foo.Spec.Replicas != 1 { //*deployment.Spec.Replicas {
-		logger.Infof("Foo %s replicas: %d, deployment replicas: %d", name, *foo.Spec.Replicas, 1) //*deployment.Spec.Replicas)
-		deployment, err = c.kubeclientset.CoreV1().Secrets(foo.Namespace).Update(newSecret(foo))
-	}
-
-	// If an error occurs during Update, we'll requeue the item so we can
-	// attempt processing again later. THis could have been caused by a
-	// temporary network failure, or any other transient reason.
-	if err != nil {
-		return err
-	}
-
-	// Finally, we update the status block of the Foo resource to reflect the
-	// current state of the world
-	err = c.updateFooStatus(foo, deployment)
-	if err != nil {
-		return err
-	}
-
-	c.recorder.Event(foo, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
+	c.recorder.Event(secretDefinition, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
 	return nil
 }
 
-func (c *Controller) updateFooStatus(foo *secretsmanagerv1alpha1.Foo, deployment *corev1.Secret) error {
-	// NEVER modify objects from the store. It's a read-only, local cache.
-	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-	// Or create a copy manually for better performance
-	fooCopy := foo.DeepCopy()
-	fooCopy.Status.AvailableReplicas = 0 //deployment.Status.AvailableReplicas
-	// If the CustomResourceSubresources feature gate is not enabled,
-	// we must use Update instead of UpdateStatus to update the Status block of the Foo resource.
-	// UpdateStatus will not allow changes to the Spec of the resource,
-	// which is ideal for ensuring nothing other than resource status has been updated.
-	_, err := c.sampleclientset.SecretsmanagerV1alpha1().Foos(foo.Namespace).Update(fooCopy)
-	return err
-}
-
-// enqueueFoo takes a Foo resource and converts it into a namespace/name
+// enqueueSecretDefinition takes a SecretDefinition resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
-// passed resources of any type other than Foo.
-func (c *Controller) enqueueFoo(obj interface{}) {
+// passed resources of any type other than SecretDefinition.
+func (c *Controller) enqueueSecretDefinition(obj interface{}) {
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
@@ -351,9 +272,9 @@ func (c *Controller) enqueueFoo(obj interface{}) {
 }
 
 // handleObject will take any resource implementing metav1.Object and attempt
-// to find the Foo resource that 'owns' it. It does this by looking at the
+// to find the SecretDefinition resource that 'owns' it. It does this by looking at the
 // objects metadata.ownerReferences field for an appropriate OwnerReference.
-// It then enqueues that Foo resource to be processed. If the object does not
+// It then enqueues that SecretDefinition resource to be processed. If the object does not
 // have an appropriate OwnerReference, it will simply be skipped.
 func (c *Controller) handleObject(obj interface{}) {
 	var object metav1.Object
@@ -373,44 +294,19 @@ func (c *Controller) handleObject(obj interface{}) {
 	}
 	logger.Infof("Processing object: %s", object.GetName())
 	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
-		// If this object is not owned by a Foo, we should not do anything more
+		// If this object is not owned by a SecretDefinition, we should not do anything more
 		// with it.
-		if ownerRef.Kind != "Foo" {
+		if ownerRef.Kind != "SecretDefinition" {
 			return
 		}
 
-		foo, err := c.foosLister.Foos(object.GetNamespace()).Get(ownerRef.Name)
+		secretDefinition, err := c.secretDefinitionsLister.SecretDefinitions(object.GetNamespace()).Get(ownerRef.Name)
 		if err != nil {
-			logger.Infof("ignoring orphaned object '%s' of foo '%s'", object.GetSelfLink(), ownerRef.Name)
+			logger.Infof("ignoring orphaned object '%s' of secretDefinition '%s'", object.GetSelfLink(), ownerRef.Name)
 			return
 		}
 
-		c.enqueueFoo(foo)
+		c.enqueueSecretDefinition(secretDefinition)
 		return
 	}
 }
-
-// newDeployment creates a new Deployment for a Foo resource. It also sets
-// the appropriate OwnerReferences on the resource so handleObject can discover
-// the Foo resource that 'owns' it.
-func newSecret(foo *secretsmanagerv1alpha1.Foo) *corev1.Secret {
-	labels := map[string]string{
-		"app":        "nginx",
-		"controller": foo.Name,
-	}
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      foo.Spec.DeploymentName,
-			Namespace: foo.Namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(foo, schema.GroupVersionKind{
-					Group:   secretsmanagerv1alpha1.SchemeGroupVersion.Group,
-					Version: secretsmanagerv1alpha1.SchemeGroupVersion.Version,
-					Kind:    "Foo",
-				}),
-			},
-			Labels: labels,
-		},
-	}
-}
-

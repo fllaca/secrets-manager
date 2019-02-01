@@ -18,10 +18,10 @@ limitations under the License.
 
 package v1alpha1
 
-// FooListerExpansion allows custom methods to be added to
-// FooLister.
-type FooListerExpansion interface{}
+// SecretDefinitionListerExpansion allows custom methods to be added to
+// SecretDefinitionLister.
+type SecretDefinitionListerExpansion interface{}
 
-// FooNamespaceListerExpansion allows custom methods to be added to
-// FooNamespaceLister.
-type FooNamespaceListerExpansion interface{}
+// SecretDefinitionNamespaceListerExpansion allows custom methods to be added to
+// SecretDefinitionNamespaceLister.
+type SecretDefinitionNamespaceListerExpansion interface{}

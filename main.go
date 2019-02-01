@@ -13,16 +13,16 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/tuenti/secrets-manager/backend"
+	"github.com/tuenti/secrets-manager/controller"
 	k8s "github.com/tuenti/secrets-manager/kubernetes"
 	"github.com/tuenti/secrets-manager/secrets-manager"
-	"github.com/tuenti/secrets-manager/controller"
 
 	smclientset "github.com/tuenti/secrets-manager/pkg/client/clientset/versioned"
 	sminformers "github.com/tuenti/secrets-manager/pkg/client/informers/externalversions"
 
+	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	kubeinformers "k8s.io/client-go/informers"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -149,24 +149,25 @@ func main() {
 	wg.Add(1)
 	go secretsManager.Start(ctx)
 
-	exampleClient, err := newSmClientSet()
+	secretDefinitionClient, err := newSmClientSet()
 	if err != nil {
-		logger.Fatalf("Error building example clientset: %s", err.Error())
+		logger.Fatalf("Error building secretDefinition clientset: %s", err.Error())
 	}
 
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(clientSet, time.Second*30)
-	exampleInformerFactory := sminformers.NewSharedInformerFactory(exampleClient, time.Second*30)
+	secretDefinitionInformerFactory := sminformers.NewSharedInformerFactory(secretDefinitionClient, time.Second*30)
 
-	controller := controller.NewController(clientSet, exampleClient,
-		kubeInformerFactory.Core().V1().Secrets(),
-		exampleInformerFactory.Secretsmanager().V1alpha1().Foos())
-
-	//controller.Run(2,sigc)
+	controller := controller.NewController(
+		clientSet,
+		secretDefinitionClient,
+		secretDefinitionInformerFactory.Secretsmanager().V1alpha1().SecretDefinitions(),
+		secretsManager,
+	)
 
 	stopCh := make(chan struct{}, 1)
 
 	kubeInformerFactory.Start(stopCh)
-	exampleInformerFactory.Start(stopCh)
+	secretDefinitionInformerFactory.Start(stopCh)
 
 	if err = controller.Run(2, stopCh); err != nil {
 		logger.Fatalf("Error running controller: %s", err.Error())
@@ -178,7 +179,7 @@ func main() {
 		select {
 		case <-sigc:
 			shutdownHttpServer(srv, logger)
-			stopCh <- struct{}{}
+			close(stopCh)
 			cancel()
 			break
 		}

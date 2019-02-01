@@ -1,16 +1,3 @@
-/*
-Copyright 2017 The Kubernetes Authors.
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-    http://www.apache.org/licenses/LICENSE-2.0
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package v1alpha1
 
 import (
@@ -20,32 +7,49 @@ import (
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// Foo is a specification for a Foo resource
-type Foo struct {
+// SecretDefinition defines how to generate a secret in K8s from remote secrets backends
+type SecretDefinition struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   FooSpec   `json:"spec"`
-	Status FooStatus `json:"status"`
+	Spec   SecretDefinitionSpec   `json:"spec"`
+	Status SecretDefinitionStatus `json:"status"`
 }
 
-// FooSpec is the spec for a Foo resource
-type FooSpec struct {
-	DeploymentName string `json:"deploymentName"`
-	Replicas       *int32 `json:"replicas"`
+// SecretDefinitionSpec is the spec for a SecretDefinition resource
+type SecretDefinitionSpec struct {
+	// Name for the secret in K8s
+	Name string `yaml:"name"`
+	// Namespaces is the list of namespaces where the secret is going to be created
+	Namespaces []string `yaml:"namespaces"`
+	// Type is the type of K8s Secret ("Opaque", "kubernetes.io/tls", ...)
+	Type string `yaml:"type"`
+	// Data is a dictionary which keys are the name of each entry in the K8s Secret data and the value is
+	// the Datasource (from backend) for that entry
+	Data map[string]DatasourceSpec `yaml:"data"` //optional?
 }
 
-// FooStatus is the status for a Foo resource
-type FooStatus struct {
-	AvailableReplicas int32 `json:"availableReplicas"`
+// DatasourceSpec represents a reference to a secret in a backend (source of truth)
+type DatasourceSpec struct {
+	// Path to a secret in a secret backend
+	Path string `yaml:"path"`
+	// Key in the secret in the backend
+	Key string `yaml:"key"`
+	// Encoding type for the secret. Only base64 supported. Optional
+	Encoding string `yaml:"encoding,omitempty"`
+}
+
+// SecretDefinitionStatus is the status for a SecretDefinition resource
+type SecretDefinitionStatus struct {
+	Synced bool `json:"synced"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// FooList is a list of Foo resources
-type FooList struct {
+// SecretDefinitionList is a list of SecretDefinition resources
+type SecretDefinitionList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`
 
-	Items []Foo `json:"items"`
+	Items []SecretDefinition `json:"items"`
 }

@@ -1,0 +1,16 @@
+apiVersion: secretsmanager.tuenti.io/v1alpha1
+kind: SecretDefinition
+metadata:
+  name: example-sd
+spec:
+  name: supersecret2ooooo
+  type: Opaque
+  namespaces:
+  - default
+  data:
+    value1:
+      path: secret/data/pathtosecret1
+      key: value
+    value2:
+      path: secret/data/pathtosecret2
+      key: value

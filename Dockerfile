@@ -12,6 +12,7 @@ RUN glide install
 
 COPY . /go/src/$PROJECT_SLUG
 ARG SECRETS_MANAGER_VERSION
+RUN hack/strip-duplicated-deps.sh
 RUN make build-linux
 
 # Stage 1

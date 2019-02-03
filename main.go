@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/tuenti/secrets-manager/backend"
@@ -19,10 +20,14 @@ import (
 
 	smclientset "github.com/tuenti/secrets-manager/pkg/client/clientset/versioned"
 	sminformers "github.com/tuenti/secrets-manager/pkg/client/informers/externalversions"
+	v1alpha1 "github.com/tuenti/secrets-manager/pkg/apis/secretsmanager/v1alpha1"
 
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+
+	apiextension "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -30,12 +35,25 @@ import (
 // To be filled from build ldflags
 var version string
 
-func newK8sClientSet() (*kubernetes.Clientset, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, err
+func homeDir() string {
+	return os.Getenv("HOME")
+}
+
+func newK8sConfig(inCluster bool, kubeconfig *string) (*rest.Config, error) {
+	var config *rest.Config
+	var err error
+
+	if inCluster {
+		config, err = rest.InClusterConfig()
+	} else {
+		// use the current context in kubeconfig
+		config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	}
 
+	return config, err
+}
+
+func newK8sClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
 	clientSet, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -43,12 +61,7 @@ func newK8sClientSet() (*kubernetes.Clientset, error) {
 	return clientSet, nil
 }
 
-func newSmClientSet() (smclientset.Interface, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, err
-	}
-
+func newSmClientSet(config *rest.Config) (smclientset.Interface, error) {
 	clientSet, err := smclientset.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -59,6 +72,7 @@ func newSmClientSet() (smclientset.Interface, error) {
 func main() {
 	var logger *log.Logger
 	var wg sync.WaitGroup
+	var kubeconfig *string
 
 	backendCfg := backend.Config{}
 	secretsManagerCfg := secretsmanager.Config{}
@@ -67,6 +81,14 @@ func main() {
 	logFormat := flag.String("log.format", "text", "Log format, one of text or json")
 	versionFlag := flag.Bool("version", false, "Display Secret Manager version")
 	addr := flag.String("listen-address", ":8080", "The address to listen on for HTTP requests.")
+
+
+	if home := homeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	}
+	inCluster := flag.Bool("in-cluster", true, "Use in-cluster Kubernetes config")
 
 	flag.StringVar(&secretsManagerCfg.ConfigMap, "config.config-map", "secrets-manager-config", "Name of the config Map with Secrets Manager settings (format: [<namespace>/]<name>) ")
 	flag.DurationVar(&secretsManagerCfg.BackendScrapeInterval, "config.backend-timeout", 5*time.Second, "Backend connection timeout")
@@ -125,8 +147,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	clientSet, err := newK8sClientSet()
+	k8sConfig, err := newK8sConfig(*inCluster, kubeconfig)
+	if err != nil {
+		logger.Errorf("could not build k8s client: %v", err)
+		os.Exit(1)
+	}
 
+	clientSet, err := newK8sClientSet(k8sConfig)
+
+	apiExtensionsClient, err := apiextension.NewForConfig(k8sConfig)
+	if err != nil {
+		logger.Fatalf("Failed to create client: %v", err)
+	}
+	err = v1alpha1.CreateCRD(apiExtensionsClient)
+	if err != nil {
+		logger.Fatalf("Failed to create crd: %v", err)
+	}
+ 
 	if err != nil {
 		logger.Errorf("could not build k8s client: %v", err)
 		os.Exit(1)
@@ -149,7 +186,7 @@ func main() {
 	wg.Add(1)
 	go secretsManager.Start(ctx)
 
-	secretDefinitionClient, err := newSmClientSet()
+	secretDefinitionClient, err := newSmClientSet(k8sConfig)
 	if err != nil {
 		logger.Fatalf("Error building secretDefinition clientset: %s", err.Error())
 	}
@@ -162,6 +199,7 @@ func main() {
 		secretDefinitionClient,
 		secretDefinitionInformerFactory.Secretsmanager().V1alpha1().SecretDefinitions(),
 		secretsManager,
+		logger,
 	)
 
 	stopCh := make(chan struct{}, 1)

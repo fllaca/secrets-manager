@@ -26,3 +26,5 @@ import:
   - proto
 - package: k8s.io/code-generator
   version: kubernetes-1.10.0
+- package: k8s.io/apiextensions-apiserver
+  version: kubernetes-1.10.0

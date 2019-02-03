@@ -93,8 +93,9 @@ func NewController(
 	kubeclientset kubernetes.Interface,
 	secretDefinitionclientset clientset.Interface,
 	secretDefinitionInformer informers.SecretDefinitionInformer,
-	secretsManager *secretsmanager.SecretManager) *Controller {
+	secretsManager *secretsmanager.SecretManager, l *log.Logger) *Controller {
 
+	logger = l
 	// Create event broadcaster
 	// Add sample-controller types to the default Kubernetes Scheme so Events can be
 	// logged for sample-controller types.
@@ -227,6 +228,7 @@ func (c *Controller) processNextWorkItem() bool {
 func (c *Controller) syncHandler(key string) error {
 	// Convert the namespace/name string into a distinct namespace and name
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
+	logger.Debugf("Syncing %s", key)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
 		return nil

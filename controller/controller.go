@@ -1,19 +1,3 @@
-/*
-Copyright 2017 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
@@ -85,7 +69,7 @@ type Controller struct {
 	// Kubernetes API.
 	recorder record.EventRecorder
 
-	secretsManager *secretsmanager.SecretManager
+	secretsManager secretsmanager.SecretManager
 }
 
 // NewController returns a new sample controller
@@ -93,7 +77,7 @@ func NewController(
 	kubeclientset kubernetes.Interface,
 	secretDefinitionclientset clientset.Interface,
 	secretDefinitionInformer informers.SecretDefinitionInformer,
-	secretsManager *secretsmanager.SecretManager, l *log.Logger) *Controller {
+	secretsManager secretsmanager.SecretManager, l *log.Logger) *Controller {
 
 	logger = l
 	// Create event broadcaster
@@ -247,12 +231,13 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	secretName := secretDefinition.Spec.Name
-	if secretName == "" {
+	err = c.secretsManager.SyncState(secretDefinition.Spec)
+
+	if err != nil {
 		// We choose to absorb the error here as the worker would requeue the
 		// resource otherwise. Instead, the next time the resource is updated
 		// the resource will be queued again.
-		utilruntime.HandleError(fmt.Errorf("%s: secret definition name must be specified", key))
+		utilruntime.HandleError(fmt.Errorf("%s: failed to sync", key))
 		return nil
 	}
 

@@ -56,3 +56,7 @@ mocks:
 		-destination mocks/kubernetes.go \
 		-source kubernetes/kubernetes.go \
 		-mock_names Client=MockKubernetesClient
+	mockgen -package mocks \
+		-destination mocks/secrets_manager.go \
+		-source secrets-manager/secrets_manager.go \
+		-mock_names SecretManager=MockSecretManager

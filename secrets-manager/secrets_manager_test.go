@@ -15,6 +15,8 @@ import (
 	"github.com/tuenti/secrets-manager/mocks"
 	"k8s.io/client-go/kubernetes/fake"
 
+	v1alpha1 "github.com/tuenti/secrets-manager/pkg/apis/secretsmanager/v1alpha1"
+
 	log "github.com/sirupsen/logrus"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -55,34 +57,6 @@ func TestNew(t *testing.T) {
 
 	assert.Nil(t, err)
 	assert.NotNil(t, secretManager)
-	assert.Equal(t, "default", secretManager.configMapNamespace)
-	assert.Equal(t, "cm", secretManager.configMapName)
-}
-
-func TestNewSplitConfigMapName(t *testing.T) {
-	ctx := context.Background()
-	fakeBackend := newFakeBackend([]fakeBackendSecret{})
-	logger := log.New()
-	k8s := kubernetes.New(fake.NewSimpleClientset(), logger)
-	cfg := Config{ConfigMap: "ns/cm"}
-	secretManager, err := New(ctx, cfg, k8s, fakeBackend, logger)
-
-	assert.Nil(t, err)
-	assert.NotNil(t, secretManager)
-	assert.Equal(t, "ns", secretManager.configMapNamespace)
-	assert.Equal(t, "cm", secretManager.configMapName)
-}
-
-func TestNewConfigMapNameMultipleSlashes(t *testing.T) {
-	ctx := context.Background()
-	fakeBackend := newFakeBackend([]fakeBackendSecret{})
-	logger := log.New()
-	k8s := kubernetes.New(fake.NewSimpleClientset(), logger)
-	cfg := Config{ConfigMap: "ns/cm/foo"}
-	secretManager, err := New(ctx, cfg, k8s, fakeBackend, logger)
-
-	assert.NotNil(t, err)
-	assert.Nil(t, secretManager)
 }
 
 func TestGetDesiredState(t *testing.T) {
@@ -93,10 +67,10 @@ func TestGetDesiredState(t *testing.T) {
 	logger := log.New()
 	k8s := kubernetes.New(fake.NewSimpleClientset(), logger)
 	cfg := Config{ConfigMap: "cm"}
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
+	sm, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	data, err := secretManager.getDesiredState(SecretDefinition{
-		Data: map[string]Datasource{
+	data, err := sm.(*secretManager).getDesiredState(v1alpha1.SecretDefinitionSpec{
+		Data: map[string]v1alpha1.DatasourceSpec{
 			"key1": {
 				Path: "some/path",
 				Key:  "key-in-vault",
@@ -116,10 +90,10 @@ func TestGetDesiredStateBadB64Content(t *testing.T) {
 	logger := log.New()
 	k8s := kubernetes.New(fake.NewSimpleClientset(), logger)
 	cfg := Config{ConfigMap: "cm"}
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
+	sm, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	data, err := secretManager.getDesiredState(SecretDefinition{
-		Data: map[string]Datasource{
+	data, err := sm.(*secretManager).getDesiredState(v1alpha1.SecretDefinitionSpec{
+		Data: map[string]v1alpha1.DatasourceSpec{
 			"key1": {
 				Encoding: "base64",
 				Path:     "some/path",
@@ -140,10 +114,10 @@ func TestGetDesiredStateEncodingNotImplemented(t *testing.T) {
 	logger := log.New()
 	k8s := kubernetes.New(fake.NewSimpleClientset(), logger)
 	cfg := Config{ConfigMap: "cm"}
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
+	sm, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	data, err := secretManager.getDesiredState(SecretDefinition{
-		Data: map[string]Datasource{
+	data, err := sm.(*secretManager).getDesiredState(v1alpha1.SecretDefinitionSpec{
+		Data: map[string]v1alpha1.DatasourceSpec{
 			"key1": {
 				Encoding: "base65",
 				Path:     "some/path",
@@ -162,10 +136,10 @@ func TestGetDesiredStateBackendError(t *testing.T) {
 	logger := log.New()
 	k8s := kubernetes.New(fake.NewSimpleClientset(), logger)
 	cfg := Config{ConfigMap: "cm"}
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
+	sm, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	_, err := secretManager.getDesiredState(SecretDefinition{
-		Data: map[string]Datasource{
+	_, err := sm.(*secretManager).getDesiredState(v1alpha1.SecretDefinitionSpec{
+		Data: map[string]v1alpha1.DatasourceSpec{
 			"key1": {
 				Path: "some/path",
 				Key:  "key-in-vault",
@@ -189,9 +163,9 @@ func TestGetCurrentState(t *testing.T) {
 	fakeBackend := newFakeBackend([]fakeBackendSecret{})
 	logger := log.New()
 	cfg := Config{ConfigMap: "cm"}
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
+	sm, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	data, err := secretManager.getCurrentState("ns", "secret-name")
+	data, err := sm.(*secretManager).getCurrentState("ns", "secret-name")
 
 	assert.Nil(t, err)
 	assert.Equal(t, fakeSecretData, data)
@@ -207,9 +181,9 @@ func TestGetCurrentStateError(t *testing.T) {
 	fakeBackend := newFakeBackend([]fakeBackendSecret{})
 	logger := log.New()
 	cfg := Config{ConfigMap: "cm"}
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
+	sm, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	_, err := secretManager.getCurrentState("ns", "secret-name")
+	_, err := sm.(*secretManager).getCurrentState("ns", "secret-name")
 
 	assert.NotNil(t, err)
 }
@@ -233,9 +207,9 @@ func TestUpsertSecret(t *testing.T) {
 	fakeBackend := newFakeBackend([]fakeBackendSecret{})
 	logger := log.New()
 	cfg := Config{ConfigMap: "cm"}
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
+	sm, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	err := secretManager.upsertSecret(
+	err := sm.(*secretManager).upsertSecret(
 		"Opaque",
 		"ns",
 		"secret-name",
@@ -265,9 +239,9 @@ func TestUpsertSecretError(t *testing.T) {
 	fakeBackend := newFakeBackend([]fakeBackendSecret{})
 	logger := log.New()
 	cfg := Config{ConfigMap: "cm"}
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
+	sm, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	err := secretManager.upsertSecret(
+	err := sm.(*secretManager).upsertSecret(
 		"Opaque",
 		"ns",
 		"secret-name",
@@ -307,11 +281,11 @@ func TestSyncState(t *testing.T) {
 	cfg := Config{ConfigMap: "cm"}
 	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	err := secretManager.syncState(SecretDefinition{
+	err := secretManager.SyncState(v1alpha1.SecretDefinitionSpec{
 		Name:       "secret-name",
 		Namespaces: []string{"ns"},
 		Type:       "Opaque",
-		Data: map[string]Datasource{
+		Data: map[string]v1alpha1.DatasourceSpec{
 			"value1": {
 				Path: "some/path",
 				Key:  "key-in-vault",
@@ -337,11 +311,11 @@ func TestSyncStateErrorGetDesired(t *testing.T) {
 	cfg := Config{ConfigMap: "cm"}
 	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	err := secretManager.syncState(SecretDefinition{
+	err := secretManager.SyncState(v1alpha1.SecretDefinitionSpec{
 		Name:       "secret-name",
 		Namespaces: []string{"ns"},
 		Type:       "Opaque",
-		Data: map[string]Datasource{
+		Data: map[string]v1alpha1.DatasourceSpec{
 			"value1": {
 				Path: "some/path",
 				Key:  "key-in-vault",
@@ -395,11 +369,11 @@ func TestSyncStateErrorGetCurrentInOneSecret(t *testing.T) {
 	cfg := Config{ConfigMap: "cm"}
 	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	err := secretManager.syncState(SecretDefinition{
+	err := secretManager.SyncState(v1alpha1.SecretDefinitionSpec{
 		Name:       "secret-name",
 		Namespaces: []string{"ns1", "ns2", "ns3"},
 		Type:       "Opaque",
-		Data: map[string]Datasource{
+		Data: map[string]v1alpha1.DatasourceSpec{
 			"value1": {
 				Path: "some/path",
 				Key:  "key-in-vault",
@@ -448,11 +422,11 @@ func TestSyncStateErrorUpsertSecret(t *testing.T) {
 	cfg := Config{ConfigMap: "cm"}
 	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
 
-	err := secretManager.syncState(SecretDefinition{
+	err := secretManager.SyncState(v1alpha1.SecretDefinitionSpec{
 		Name:       "secret-name",
 		Namespaces: []string{"ns1"},
 		Type:       "Opaque",
-		Data: map[string]Datasource{
+		Data: map[string]v1alpha1.DatasourceSpec{
 			"value1": {
 				Path: "some/path",
 				Key:  "key-in-vault",
@@ -464,89 +438,4 @@ func TestSyncStateErrorUpsertSecret(t *testing.T) {
 	// Test Prometheus metric
 	metricSecretSyncErrorsCount, _ := secretSyncErrorsCount.GetMetricWithLabelValues("secret-name", "ns")
 	assert.Equal(t, 0.0, testutil.ToFloat64(metricSecretSyncErrorsCount))
-}
-
-func TestLoadConfig(t *testing.T) {
-	configText := `
-- name: supersecret1
-  type: kubernetes.io/tls
-  namespaces:
-  - default
-  data:
-    tls.crt:
-      path: secret/data/pathtosecret1
-      key: value
-    tls.key:
-      path: secret/data/pathtosecret2
-      key: value
-
-- name: supersecret2
-  type: Opaque
-  namespaces:
-  - default
-  data:
-    value1:
-      path: secret/data/pathtosecret1
-      key: value
-    value2:
-      path: secret/data/pathtosecret1
-      key: value`
-
-	mockCtrl := gomock.NewController(t)
-	defer mockCtrl.Finish()
-
-	ctx := context.Background()
-	fakeBackend := newFakeBackend([]fakeBackendSecret{})
-	logger := log.New()
-	k8s := mocks.NewMockKubernetesClient(mockCtrl)
-	cfg := Config{ConfigMap: "cm"}
-
-	k8s.EXPECT().ReadConfigMap("cm", "default", "secretDefinitions").AnyTimes().Return(configText, nil)
-
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
-
-	err := secretManager.loadSecretDefinitions()
-
-	assert.Nil(t, err)
-	assert.Len(t, secretManager.secretDefinitions, 2)
-}
-
-func TestLoadConfigConfigMapNotFound(t *testing.T) {
-
-	mockCtrl := gomock.NewController(t)
-	defer mockCtrl.Finish()
-
-	ctx := context.Background()
-	fakeBackend := newFakeBackend([]fakeBackendSecret{})
-	logger := log.New()
-	k8s := mocks.NewMockKubernetesClient(mockCtrl)
-	cfg := Config{ConfigMap: "cm"}
-
-	k8s.EXPECT().ReadConfigMap("cm", "default", "secretDefinitions").AnyTimes().Return("", errors.New("not found"))
-
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
-
-	err := secretManager.loadSecretDefinitions()
-
-	assert.NotNil(t, err)
-}
-
-func TestLoadConfigConfigMapBadYaml(t *testing.T) {
-	configText := `This is Bad Yaml`
-	mockCtrl := gomock.NewController(t)
-	defer mockCtrl.Finish()
-
-	ctx := context.Background()
-	fakeBackend := newFakeBackend([]fakeBackendSecret{})
-	logger := log.New()
-	k8s := mocks.NewMockKubernetesClient(mockCtrl)
-	cfg := Config{ConfigMap: "cm"}
-
-	k8s.EXPECT().ReadConfigMap("cm", "default", "secretDefinitions").AnyTimes().Return(configText, nil)
-
-	secretManager, _ := New(ctx, cfg, k8s, fakeBackend, logger)
-
-	err := secretManager.loadSecretDefinitions()
-
-	assert.NotNil(t, err)
 }

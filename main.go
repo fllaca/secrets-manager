@@ -184,7 +184,6 @@ func main() {
 		syscall.SIGQUIT)
 
 	wg.Add(1)
-	go secretsManager.Start(ctx)
 
 	secretDefinitionClient, err := newSmClientSet(k8sConfig)
 	if err != nil {

@@ -3,19 +3,23 @@ package secretsmanager
 import (
 	"context"
 	"reflect"
-	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/tuenti/secrets-manager/backend"
 	"github.com/tuenti/secrets-manager/errors"
 	k8s "github.com/tuenti/secrets-manager/kubernetes"
+
+	v1alpha1 "github.com/tuenti/secrets-manager/pkg/apis/secretsmanager/v1alpha1"
 )
 
-type SecretManager struct {
+type SecretManager interface {
+	SyncState(secret v1alpha1.SecretDefinitionSpec) error 
+}
+
+type secretManager struct {
 	configMapName            string
 	configMapNamespace       string
-	secretDefinitions        SecretDefinitions
 	kubernetes               k8s.Client
 	backend                  backend.Client
 	backendScrapeInterval    time.Duration
@@ -28,23 +32,8 @@ const configMapKeySecretDefinitions = "secretDefinitions"
 
 var logger *log.Logger
 
-func New(ctx context.Context, config Config, kubernetes k8s.Client, backend backend.Client, l *log.Logger) (*SecretManager, error) {
-	secretManager := new(SecretManager)
-
-	s := strings.Split(config.ConfigMap, "/")
-	if len(s) == 1 {
-		secretManager.configMapName = s[0]
-		secretManager.configMapNamespace = "default"
-	} else if len(s) == 2 {
-		secretManager.configMapName = s[1]
-		secretManager.configMapNamespace = s[0]
-	} else {
-		return nil, &errors.InvalidConfigmapNameError{ErrType: errors.InvalidConfigmapNameErrorType, Value: config.ConfigMap}
-	}
-
-	secretManager.backendScrapeInterval = config.BackendScrapeInterval
-	secretManager.configMapRefreshInterval = config.ConfigMapRefreshInterval
-
+func New(ctx context.Context, config Config, kubernetes k8s.Client, backend backend.Client, l *log.Logger) (SecretManager, error) {
+	secretManager := new(secretManager)
 	secretManager.kubernetes = kubernetes
 	secretManager.backend = backend
 	logger = l
@@ -52,45 +41,8 @@ func New(ctx context.Context, config Config, kubernetes k8s.Client, backend back
 	return secretManager, nil
 }
 
-func (s *SecretManager) Start(ctx context.Context) {
-	// Start periodic refreshes of configmap configuration
-	s.startConfigMapRefresh(ctx)
-
-	for {
-		select {
-		case <-time.After(s.backendScrapeInterval):
-			//Read Secret list
-			logger.Debugf("syncing - found %d secrets", len(s.secretDefinitions))
-
-			for _, secret := range s.secretDefinitions {
-				logger.Debugf("syncing secret: %s", secret.Name)
-				s.syncState(secret)
-			}
-		case <-ctx.Done():
-			log.Infoln("gracefully shutting down configmap refresh go routine")
-			return
-		}
-
-	}
-}
-
-func (s *SecretManager) loadSecretDefinitions() error {
-	configMapContent, err := s.kubernetes.ReadConfigMap(s.configMapName, s.configMapNamespace, configMapKeySecretDefinitions)
-	if err != nil {
-		logger.Errorf("unable to load config: %s", err.Error())
-		return err
-	}
-	secretDefinitions, err := parseSecretDefsFromYaml(configMapContent)
-	if err != nil {
-		logger.Errorf("unable to load config: %s", err.Error())
-		return err
-	}
-	s.secretDefinitions = secretDefinitions
-	return nil
-}
-
 // getDesiredState will get the secrets from the backend source of truth
-func (s *SecretManager) getDesiredState(secret SecretDefinition) (map[string][]byte, error) {
+func (s *secretManager) getDesiredState(secret v1alpha1.SecretDefinitionSpec) (map[string][]byte, error) {
 	desiredState := make(map[string][]byte)
 	var err error
 	for k, v := range secret.Data {
@@ -115,7 +67,7 @@ func (s *SecretManager) getDesiredState(secret SecretDefinition) (map[string][]b
 }
 
 // getCurrentState will get the secrets from Kubernetes API
-func (s *SecretManager) getCurrentState(namespace string, name string) (map[string][]byte, error) {
+func (s *secretManager) getCurrentState(namespace string, name string) (map[string][]byte, error) {
 	currentState, err := s.kubernetes.ReadSecret(namespace, name)
 	if err != nil {
 		logger.Debugf("failed to read '%s/%s' secret from kubernetes api: %v", namespace, name, err)
@@ -123,7 +75,7 @@ func (s *SecretManager) getCurrentState(namespace string, name string) (map[stri
 	return currentState, err
 }
 
-func (s *SecretManager) syncState(secret SecretDefinition) error {
+func (s *secretManager) SyncState(secret v1alpha1.SecretDefinitionSpec) error {
 	desiredState, err := s.getDesiredState(secret)
 	if err != nil {
 		logger.Errorf("unable to get desired state for secret '%s' : %v", secret.Name, err)
@@ -154,7 +106,7 @@ func (s *SecretManager) syncState(secret SecretDefinition) error {
 	return nil
 }
 
-func (s *SecretManager) upsertSecret(secretType string, namespace string, name string, data map[string][]byte) error {
+func (s *secretManager) upsertSecret(secretType string, namespace string, name string, data map[string][]byte) error {
 	lastUpdate := time.Now()
 	secret := &k8s.Secret{
 		Type: secretType,
@@ -173,21 +125,4 @@ func (s *SecretManager) upsertSecret(secretType string, namespace string, name s
 	}
 	secretLastUpdated.WithLabelValues(name, namespace).Set(float64(lastUpdate.Unix()))
 	return nil
-}
-
-func (s *SecretManager) startConfigMapRefresh(ctx context.Context) {
-	// initial load of secretDefinitions
-	s.loadSecretDefinitions()
-
-	go func(ctx context.Context) {
-		for {
-			select {
-			case <-time.After(s.configMapRefreshInterval):
-				s.loadSecretDefinitions()
-			case <-ctx.Done():
-				log.Infoln("gracefully shutting down configmap refresh go routine")
-				return
-			}
-		}
-	}(ctx)
 }
